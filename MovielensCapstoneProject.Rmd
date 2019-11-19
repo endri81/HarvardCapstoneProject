@@ -1,0 +1,201 @@
+---
+title: "Capstone Project Report"
+subtitle: "Building a recommender system using 10M version of Movielens dataset"
+author: "Endri Raco"
+date: "06/11/2019"
+output:
+  pdf_document: default
+  html_document:
+  df_print: paged  
+---
+```{r, global_options, include=FALSE}
+    library(knitr)
+    library(formatR)
+    opts_chunk$set(
+      echo=TRUE,
+      error = FALSE,
+      warning=FALSE,
+      message=FALSE,
+      tidy = TRUE,
+      tidy.opts=list(blank=FALSE, width.cutoff=60,size = 'tiny'),
+      fig.width=5, 
+      fig.height=4, 
+      fig.path='Figs/')
+```
+
+```{r setup_source, include=FALSE}
+hook_source_def = knitr::knit_hooks$get('source')
+knitr::knit_hooks$set(source = function(x, options) {
+  if (!is.null(options$vspaceecho)) {
+    begin <- paste0("\\vspace{", options$vspaceecho, "}")
+    stringr::str_c(begin, hook_source_def(x, options))
+  } else {
+    hook_source_def(x, options)
+  }
+})
+```
+
+```{r setup_output, include=FALSE}
+hook_output_def = knitr::knit_hooks$get('output')
+knitr::knit_hooks$set(output = function(x, options) {
+  if (!is.null(options$vspaceout)) {
+    end <- paste0("\\vspace{", options$vspaceout, "}")
+    stringr::str_c(hook_output_def(x, options), end)
+  } else {
+    hook_output_def(x, options)
+  }
+})
+```
+
+## Introduction
+
+Recommender systems are information filtering tools that aspire to predict the rating for users and items, predominantly from big data to recommend their likes. Movie recommendation systems provide a mechanism to assist users in classifying users with similar interests. This makes recommender systems essentially a central part of websites and e-commerce applications. This project focuses on building a movie recommendation system using data from 10M version of movielens dataset. Several Machine Learning techniques such as Matrix Factorization, Regularization etc will be used to produce evaluation metrics such as root mean square error (RMSE) for the movie recommender system.
+
+
+## Importing data
+
+MovieLense dataset contains the ratings that the users give to movies. Code used in "Importing data" section was previously provided by edX. 
+
+Let's start by checking if needed R packages for this project are installed. If not, code below will install them. 
+
+```{r required_packages, vspaceecho='1cm', vspaceout='1cm'}
+# required packages for our project
+if(!require(printr)) install.packages("printr", repos = "http://cran.us.r-project.org")
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+```
+
+Now we are ready for data downloading:
+
+```{r data_download, vspaceecho='1cm',vspaceout='1cm',eval=FALSE}
+# MovieLens 10M dataset:
+# https://grouplens.org/datasets/movielens/10m/
+# http://files.grouplens.org/datasets/movielens/ml-10m.zip
+
+dl <- tempfile()
+download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+```
+
+Some adjustments of downloaded data to have **movielens** dataframe as a result
+
+```{r arrange_data, vspaceecho='1cm',vspaceout='1cm',eval=FALSE}
+
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+
+movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+colnames(movies) <- c("movieId", "title", "genres")
+movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(levels(movieId))[movieId],
+                                           title = as.character(title),
+                                           genres = as.character(genres))
+movielens <- left_join(ratings, movies, by = "movieId")
+```
+
+When developing an algorithm, we usually have a dataset for which we know the outcomes, as we do with the heights: we know the sex of every student in our dataset. Therefore, to mimic
+the ultimate evaluation process, we typically split the data into two parts and act as if we don’t know the outcome for one of these. We stop pretending we don’t know the outcome to evaluate the algorithm, but only after we are done constructing it. We refer to the group for which we know the outcome, and use to develop the algorithm, as the training set. We refer to the group for which we pretend we don’t know the outcome as the test set. A standard way of generating the training and test sets is by randomly splitting the data. The caret package includes the function **createDataPartition** that helps us generates indexes for randomly splitting the data into training and test sets:
+
+```{r data-partititon, vspaceecho='1cm',vspaceout='1cm',eval=FALSE}
+# Validation set will be 10% of MovieLens data
+
+set.seed(1, sample.kind="Rounding")
+
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+```
+
+We use the result of the **createDataPartition** function call to define the training and test sets like this:
+
+```{r data-partititon2, vspaceecho='1cm',vspaceout='1cm',eval=FALSE}
+edx <- movielens[-test_index,]
+
+temp <- movielens[test_index,]
+
+```
+
+And some final adjustments before cleaning environment from unused elements.
+
+```{r final-adjustments, vspaceecho='1cm',vspaceout='1cm',eval=FALSE}
+# Make sure userId and movieId in validation set are also in edx set
+
+validation <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+# Add rows removed from validation set back into edx set
+
+removed <- anti_join(temp, validation)
+edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+```
+
+Now, we can save the result of steps above (**edx** and **validation** dataframes ) as R objects, so we can reload the final version of the data into the session for further analysis without repeating the process.
+
+```{r save-data, vspaceecho='1cm',vspaceout='1cm',eval=FALSE}
+# Save our data as R objects
+save(edx, file = "edx.RData")
+save(validation, file = "validation.RData")
+```
+
+## Data Summary
+
+We stored the data for our project in two data frames. Let's access these datasets using the **data** function:
+
+```{r load-data, vspaceecho='1cm',vspaceout='1cm'}
+# Load data
+data(edx,validation)
+```
+
+First, we make a check if our data format is indeed **data frame**:
+
+```{r data-format, vspaceecho='1cm', vspaceout='1cm'}
+# Check format
+class(edx)
+class(validation)
+```
+
+Now let's take a look in our data. We start by finding out more about the structure of our objects:
+
+```{r data-str,vspaceecho='1cm',vspaceout='1cm'}
+# Check structure for edx
+edx %>% as_tibble()
+# Check structure for validation
+validation %>% as_tibble()
+```
+
+We see that **edx** data frame has `r nrow(edx)` rows and `r ncol(edx)`
+variables, while **validation** data frame has `r nrow(validation)` rows and `r ncol(validation)`.
+
+Let's have a look in first five observations from **edx** data frame and last five observations from **validation** data frame.
+
+```{r check-obs,vspaceecho='1cm',vspaceout='1cm',error=FALSE}
+# Check observations
+head(edx, 5)
+tail(validation, 5)
+```
+
+Now let's print features of both data frames **edx** and **validation together** to reassure ourselves that both contain the same features.
+
+```{r basic_info, vspaceecho='1cm',vspaceout='1cm',eval=TRUE}
+library(dataCompareR)
+comp_edx_val <- rCompare(edx, validation)
+comp_summ <- summary(comp_edx_val)
+comp_summ[c("datasetSummary", "ncolInAOnly", "ncolInBOnly", "ncolCommon", "rowsInAOnly", "rowsInBOnly", "nrowCommon")]
+```
+
+It is a good idea to check for dublicates so to create a general idea about number of distinct users, movies and genres.
+
+```{r distinct_data, vspaceecho='1cm',vspaceout='1cm',eval=TRUE}
+# Distinct users, movies, genres
+edx %>% 
+  summarize(distinct_users = n_distinct(userId),
+            distinct_movies = n_distinct(movieId),
+            distinct_genres = n_distinct(genres)) %>% 
+kable()
+```
+
+## Results
+
+
+
+## Conclusion
