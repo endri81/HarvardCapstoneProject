@@ -4,71 +4,98 @@ subtitle: "Building a recommender system using 10M version of Movielens dataset"
 author: "Endri Raco"
 date: "06/11/2019"
 output:
-  pdf_document: default
-  html_document:
-  df_print: paged  
+  pdf_document:
+  toc: yes
+toc_depth: 3    
+fig_width: 14
+fig_height: 10
+latex_engine: xelatex
+fontsize: 12pt
+df_print: kable
+lot: no
+lof: no
+graphics: yes
+urlcolor: blue
+
 ---
-```{r, global_options, include=FALSE}
-    library(knitr)
-    library(formatR)
-    opts_chunk$set(
-      echo=TRUE,
-      error = FALSE,
-      warning=FALSE,
-      message=FALSE,
-      tidy = TRUE,
-      tidy.opts=list(blank=FALSE, width.cutoff=60,size = 'tiny'),
-      fig.width=5, 
-      fig.height=4, 
-      fig.path='Figs/')
+  
+```{r setup, include=FALSE, echo=FALSE,warning=FALSE}
+library(knitr)
+knitr::opts_chunk$set(
+  comment = NA,
+  warning=FALSE,
+  message=FALSE,
+  fig.path='./images',
+  fig.align='center',
+  fig.lp = "",
+  fig.keep="high",
+  fig.show="hold",
+  echo=TRUE, 
+  tidy.opts=list(width.cutoff=60),
+  tidy=FALSE,
+  dev="pdf")
+style <- function(data) {
+  knitr::kable(data, booktabs = TRUE, digits = 2) %>% 
+    kable_styling(
+      bootstrap_options = c("striped", "hover", "condensed"), 
+      position = "center", 
+      latex_options="scale_down")
+}
 ```
 
-```{r setup_source, include=FALSE}
-hook_source_def = knitr::knit_hooks$get('source')
-knitr::knit_hooks$set(source = function(x, options) {
-  if (!is.null(options$vspaceecho)) {
-    begin <- paste0("\\vspace{", options$vspaceecho, "}")
-    stringr::str_c(begin, hook_source_def(x, options))
-  } else {
-    hook_source_def(x, options)
+```{r wrap-hook, echo=FALSE}
+library(knitr)
+hook_output = knit_hooks$get('output')
+knit_hooks$set(output = function(x, options) {
+  # this hook is used only when the linewidth option is not NULL
+  if (!is.null(n <- options$linewidth)) {
+    x = knitr:::split_lines(x)
+    # any lines wider than n should be wrapped
+    if (any(nchar(x) > n)) x = strwrap(x, width = n)
+    x = paste(x, collapse = '\n')
   }
+  hook_output(x, options)
 })
 ```
 
-```{r setup_output, include=FALSE}
-hook_output_def = knitr::knit_hooks$get('output')
-knitr::knit_hooks$set(output = function(x, options) {
-  if (!is.null(options$vspaceout)) {
-    end <- paste0("\\vspace{", options$vspaceout, "}")
-    stringr::str_c(hook_output_def(x, options), end)
-  } else {
-    hook_output_def(x, options)
-  }
-})
-```
 
 ## Introduction
 
+&nbsp;
+
 Recommender systems are information filtering tools that aspire to predict the rating for users and items, predominantly from big data to recommend their likes. Movie recommendation systems provide a mechanism to assist users in classifying users with similar interests. This makes recommender systems essentially a central part of websites and e-commerce applications. This project focuses on building a movie recommendation system using data from 10M version of movielens dataset. Several Machine Learning techniques such as Matrix Factorization, Regularization etc will be used to produce evaluation metrics such as root mean square error (RMSE) for the movie recommender system.
 
+&nbsp;
 
 ## Importing data
+
+&nbsp;
 
 MovieLense dataset contains the ratings that the users give to movies. Code used in "Importing data" section was previously provided by edX. 
 
 Let's start by checking if needed R packages for this project are installed. If not, code below will install them. 
 
-```{r required_packages, vspaceecho='1cm', vspaceout='1cm'}
+&nbsp;
+
+```{r required_packages, tidy=FALSE}
 # required packages for our project
-if(!require(printr)) install.packages("printr", repos = "http://cran.us.r-project.org")
-if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
-if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
-if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(kableExtra)) install.packages("kableExtra", 
+repos = "http://cran.us.r-project.org")
+if(!require(tidyverse)) install.packages("tidyverse", 
+repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", 
+repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", 
+repos = "http://cran.us.r-project.org")
 ```
+
+&nbsp;
 
 Now we are ready for data downloading:
 
-```{r data_download, vspaceecho='1cm',vspaceout='1cm',eval=FALSE}
+&nbsp;
+
+```{r data_download, eval=FALSE}
 # MovieLens 10M dataset:
 # https://grouplens.org/datasets/movielens/10m/
 # http://files.grouplens.org/datasets/movielens/ml-10m.zip
@@ -77,44 +104,57 @@ dl <- tempfile()
 download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
 ```
 
+&nbsp;
+
 Some adjustments of downloaded data to have **movielens** dataframe as a result
 
-```{r arrange_data, vspaceecho='1cm',vspaceout='1cm',eval=FALSE}
+&nbsp;
 
-ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
-                 col.names = c("userId", "movieId", "rating", "timestamp"))
-
+```{r arrange_data, eval=FALSE}
+ratings <- fread(text = gsub("::", "\t", 
+readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+col.names = c("userId", "movieId", "rating", "timestamp"))
 movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
 colnames(movies) <- c("movieId", "title", "genres")
-movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(levels(movieId))[movieId],
-                                           title = as.character(title),
-                                           genres = as.character(genres))
+movies <- as.data.frame(movies) %>% 
+mutate(movieId = as.numeric(levels(movieId))[movieId],
+title = as.character(title),
+genres = as.character(genres))
 movielens <- left_join(ratings, movies, by = "movieId")
 ```
+
+&nbsp;
 
 When developing an algorithm, we usually have a dataset for which we know the outcomes, as we do with the heights: we know the sex of every student in our dataset. Therefore, to mimic
 the ultimate evaluation process, we typically split the data into two parts and act as if we don’t know the outcome for one of these. We stop pretending we don’t know the outcome to evaluate the algorithm, but only after we are done constructing it. We refer to the group for which we know the outcome, and use to develop the algorithm, as the training set. We refer to the group for which we pretend we don’t know the outcome as the test set. A standard way of generating the training and test sets is by randomly splitting the data. The caret package includes the function **createDataPartition** that helps us generates indexes for randomly splitting the data into training and test sets:
 
-```{r data-partititon, vspaceecho='1cm',vspaceout='1cm',eval=FALSE}
+&nbsp;
+
+```{r data-partititon, eval=FALSE}
 # Validation set will be 10% of MovieLens data
-
 set.seed(1, sample.kind="Rounding")
-
-test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+test_index <- createDataPartition(y = movielens$rating, 
+times = 1, p = 0.1, list = FALSE)
 ```
+
+&nbsp;
 
 We use the result of the **createDataPartition** function call to define the training and test sets like this:
 
-```{r data-partititon2, vspaceecho='1cm',vspaceout='1cm',eval=FALSE}
+&nbsp;
+
+```{r data-partititon2, eval=FALSE}
 edx <- movielens[-test_index,]
-
 temp <- movielens[test_index,]
-
 ```
+
+&nbsp;
 
 And some final adjustments before cleaning environment from unused elements.
 
-```{r final-adjustments, vspaceecho='1cm',vspaceout='1cm',eval=FALSE}
+&nbsp;
+
+```{r final-adjustments, eval=FALSE}
 # Make sure userId and movieId in validation set are also in edx set
 
 validation <- temp %>% 
@@ -129,70 +169,220 @@ edx <- rbind(edx, removed)
 rm(dl, ratings, movies, test_index, temp, movielens, removed)
 ```
 
+&nbsp;
+
 Now, we can save the result of steps above (**edx** and **validation** dataframes ) as R objects, so we can reload the final version of the data into the session for further analysis without repeating the process.
 
-```{r save-data, vspaceecho='1cm',vspaceout='1cm',eval=FALSE}
+&nbsp;
+
+```{r save-data, eval=FALSE}
 # Save our data as R objects
 save(edx, file = "edx.RData")
 save(validation, file = "validation.RData")
 ```
 
-## Data Summary
+&nbsp;
 
-We stored the data for our project in two data frames. Let's access these datasets using the **data** function:
+## Describing Data
 
-```{r load-data, vspaceecho='1cm',vspaceout='1cm'}
+&nbsp;
+
+We stored the data for our project in two data frames. Let's access these datasets using the **load** function:
+  
+&nbsp;
+
+```{r load-data, eval=TRUE}
 # Load data
-data(edx,validation)
+load("edx.RData")
+load("validation.RData")
 ```
 
-First, we make a check if our data format is indeed **data frame**:
+&nbsp;
 
-```{r data-format, vspaceecho='1cm', vspaceout='1cm'}
+First, we make a check if our data format is indeed **data frame**:
+  
+&nbsp;
+
+```{r data-format, eval=TRUE}
 # Check format
 class(edx)
 class(validation)
 ```
 
-Now let's take a look in our data. We start by finding out more about the structure of our objects:
+&nbsp;
 
-```{r data-str,vspaceecho='1cm',vspaceout='1cm'}
-# Check structure for edx
-edx %>% as_tibble()
-# Check structure for validation
-validation %>% as_tibble()
+Now let's take a look in our data. We start by finding out more about the structure of our **edx**:
+
+&nbsp;
+
+```{r data-str-edx,eval=TRUE, linewidth=60}
+as_tibble(edx) %>%
+slice(1:5) %>%
+style()
 ```
+
+&nbsp;
+
+Now for **validation**:
+
+```{r data-str-val,eval=TRUE, linewidth=60}
+as_tibble(validation) %>%
+slice(1:5) %>%
+style() 
+```
+
+&nbsp;
 
 We see that **edx** data frame has `r nrow(edx)` rows and `r ncol(edx)`
 variables, while **validation** data frame has `r nrow(validation)` rows and `r ncol(validation)`.
 
-Let's have a look in first five observations from **edx** data frame and last five observations from **validation** data frame.
-
-```{r check-obs,vspaceecho='1cm',vspaceout='1cm',error=FALSE}
-# Check observations
-head(edx, 5)
-tail(validation, 5)
-```
-
 Now let's print features of both data frames **edx** and **validation together** to reassure ourselves that both contain the same features.
 
-```{r basic_info, vspaceecho='1cm',vspaceout='1cm',eval=TRUE}
+&nbsp;
+
+```{r basic_info, eval=TRUE,linewidth=60}
 library(dataCompareR)
 comp_edx_val <- rCompare(edx, validation)
 comp_summ <- summary(comp_edx_val)
-comp_summ[c("datasetSummary", "ncolInAOnly", "ncolInBOnly", "ncolCommon", "rowsInAOnly", "rowsInBOnly", "nrowCommon")]
+comp_summ[c("datasetSummary", "ncolInAOnly", "ncolInBOnly", "ncolCommon", "rowsInAOnly", "rowsInBOnly", "nrowCommon")] 
 ```
+
+&nbsp;
 
 It is a good idea to check for dublicates so to create a general idea about number of distinct users, movies and genres.
 
-```{r distinct_data, vspaceecho='1cm',vspaceout='1cm',eval=TRUE}
+&nbsp;
+
+```{r distinct_data, eval=TRUE}
 # Distinct users, movies, genres
 edx %>% 
-  summarize(distinct_users = n_distinct(userId),
+summarize(distinct_users = n_distinct(userId),
             distinct_movies = n_distinct(movieId),
-            distinct_genres = n_distinct(genres)) %>% 
-kable()
+            distinct_genres = n_distinct(genres)) %>%
+  style()
 ```
+
+&nbsp;
+
+## Data Wrangling
+
+When we printed **edx** and **validation** data frames as tibbles we noticed that we can make some arrangements in **title**, **timestamp** and **genres** columns to bring our data in a tidy format.
+
+We are going to perform these tasks:
+  
+  - Most of the movies have their **premier year** added to their **titles**. We will extract debut years in a separate column.
+
+  - Column **genres** has to be categorized. We will change the class of **genres** to **factor**
+  
+  - **Timestamp** needs to be converted to **rate_year**.
+
+&nbsp;
+
+```{r tidy-data, eval=FALSE}
+tidydf <- function(df){
+  df$genres <- as.factor(df$genres) #Convert genres to factor
+  df$timestamp <- as.Date(as.POSIXct(df$timestamp, origin="1970-01-01"))
+  #Convert timestamp
+  names(df)[names(df) == "timestamp"] <- "rate_year" # Rename column timestamp to rate_year
+  df <- df %>% 
+    mutate(title = str_trim(title), rate_year = year(rate_year)) %>%  #Mutate title and rate_year
+    extract(title, c("title", "premier_year"), regex = "(.*)\\s\\((\\d+)\\)", convert = TRUE) #Separate title from year
+  return(df)
+}
+# Transform our dataframes
+edx <- tidydf(edx)
+validation <- tidydf(validation)
+```
+
+
+Now our data frames look like this:
+  
+&nbsp;
+
+```{r check-tidy-data, eval=TRUE}
+as_tibble(edx)
+as_tibble(validation)
+```
+
+&nbsp;
+
+Probably is a good idea in this step to check for NA values:
+  
+&nbsp;
+
+```{r check-na-data, eval=TRUE}
+# Check edx dataframe for NA values
+edx_na <- edx %>%
+  filter(is.na(title) | is.na(year))
+glimpse(edx_na) 
+
+# Check validation dataframe for NA values
+validation_na <- validation %>%
+  filter(is.na(title) | is.na(year))
+glimpse(validation_na) 
+```
+
+&nbsp;
+
+## Exploring Data
+
+&nbsp;
+
+### Ratings frequency
+
+&nbsp;
+
+From this step to the development of our algorithm we will continue using **edx** dataframe. We will come back to **validation** dataframe to perform  a final test of our algorithm, predict movie ratings in the validation set as if they were unknown. 
+
+&nbsp;
+
+Now let's begin our exploration by looking at **rating** variable.
+
+&nbsp;
+
+```{r rate-explore, eval=TRUE}
+# Check frequencies of ratings unique values
+table_rating <- as.data.frame(table(edx$rating))
+colnames(table_rating) <- c("Rating", "Frequencies")
+table_rating
+```
+
+&nbsp;
+
+Now, we will build a frequency plot of the ratings using **ggplot2**. For this step we need to convert **ratings** into categories:
+
+&nbsp;
+
+```{r rating-frequency-plot, eval=TRUE}
+# Frequency plot of the ratings
+table_rating %>% ggplot(aes(Rating, Frequencies)) +
+geom_bar(stat = "identity") +
+labs(x="Ratings", y="Count") +
+ggtitle("Distribution of ratings")
+```
+
+&nbsp;
+
+We notice from the figure that most of the ratings are above 2, and the most common is 4. 
+
+&nbsp;
+
+### Most viewed movies
+
+Now let's check 10 most viewed movies:
+  
+&nbsp;
+
+```{r movie-view, eval=TRUE}
+# Top movies by number of views
+tmovies <- edx %>% select(title) %>% 
+  group_by(title) %>% 
+  summarize(count=n()) %>% 
+  arrange(desc(count)) %>% head(10)
+# Print top_movies
+style(tmovies)
+```
+
 
 ## Results
 
